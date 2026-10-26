@@ -1,0 +1,540 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#080b16">
+<title>DEMON: Soul World</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#080b16;color:#fff;
+font-family:Arial,Helvetica,sans-serif;touch-action:none}
+#game{position:fixed;inset:0}
+canvas{display:block}
+.hud{position:fixed;z-index:2;left:14px;right:14px;top:14px;
+pointer-events:none;display:flex;justify-content:space-between;gap:10px}
+.panel{background:#0a1021df;border:1px solid #34456b;border-radius:14px;
+padding:11px 13px;backdrop-filter:blur(8px)}
+.brand{font-weight:900;letter-spacing:2px;color:#9feaff;font-size:17px}
+.small{font-size:11px;color:#b6c5df;margin-top:5px}
+.stats{font-size:12px;line-height:1.9}
+.bar{height:6px;width:100px;background:#293149;border-radius:8px;overflow:hidden}
+.fill{height:100%;width:100%;background:#4be0a3;transition:width .2s}
+#quest{position:fixed;z-index:2;top:112px;left:14px;max-width:220px;
+pointer-events:none;font-size:12px}
+#message{position:fixed;z-index:3;top:44%;left:50%;transform:translate(-50%,-50%);
+font-weight:bold;color:#b9f7ff;text-shadow:0 0 15px #21cfff;
+text-align:center;pointer-events:none}
+#controls{position:fixed;z-index:4;bottom:22px;left:18px;right:18px;
+display:flex;justify-content:space-between;align-items:end;pointer-events:none}
+#stick{width:116px;height:116px;border-radius:50%;background:#182744b8;
+border:2px solid #526b9c;position:relative;pointer-events:auto;touch-action:none}
+#knob{position:absolute;width:48px;height:48px;border-radius:50%;
+background:#87dfff;border:2px solid white;left:32px;top:32px;
+box-shadow:0 0 18px #29bfff}
+.actions{display:flex;gap:10px;align-items:end;pointer-events:auto}
+.action{width:66px;height:66px;border-radius:50%;border:1px solid #8b9dca;
+color:white;background:#172443e8;font-weight:bold;font-size:11px;
+box-shadow:0 0 20px #101d40;touch-action:manipulation}
+#attack{background:linear-gradient(145deg,#913f85,#4d246f);border-color:#e0a4ff}
+#interact{background:linear-gradient(145deg,#176c83,#18375e)}
+.footer{position:fixed;bottom:8px;left:0;right:0;text-align:center;
+font-size:9px;color:#94a7c8;pointer-events:none}
+@media(min-width:700px){
+ .hud{left:24px;right:24px;top:22px}
+ #quest{left:24px;top:125px}
+ #controls{left:30px;right:30px;bottom:28px}
+}
+</style>
+</head>
+
+<body>
+<div id="game"></div>
+
+<div class="hud">
+  <div class="panel">
+    <div class="brand">DEMON <span style="color:white">/ SOUL WORLD</span></div>
+    <div class="small">SYSTEM ONLINE · EXPLORER</div>
+  </div>
+  <div class="panel stats">
+    <div>LEVEL <b id="level">1</b> · XP <b id="xp">0</b></div>
+    <div class="bar"><div id="xpbar" class="fill"></div></div>
+    <div>HP <b id="hptext">100 / 100</b></div>
+    <div class="bar"><div id="hpbar" class="fill"></div></div>
+  </div>
+</div>
+
+<div id="quest" class="panel">
+  <b style="color:#9feaff">ACTIVE QUEST</b>
+  <div style="margin-top:7px">Gather 3 Soul Crystals</div>
+  <div class="small">Crystals: <span id="crystals">0</span> / 3</div>
+  <div class="small">Move with the joystick. Explore the ruins.</div>
+</div>
+
+<div id="message">WELCOME, SOUL SEEKER</div>
+
+<div id="controls">
+  <div id="stick"><div id="knob"></div></div>
+  <div class="actions">
+    <button class="action" id="interact">COLLECT<br>SOUL</button>
+    <button class="action" id="attack">SOUL<br>STRIKE</button>
+  </div>
+</div>
+<div class="footer">DEMON: SOUL WORLD · PROTOTYPE 0.1</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+(() => {
+"use strict";
+
+const game = document.getElementById("game");
+const message = document.getElementById("message");
+
+if (!window.THREE) {
+  message.textContent = "3D engine could not load. Check your internet.";
+  return;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x080b16);
+scene.fog = new THREE.Fog(0x080b16, 18, 65);
+
+const camera = new THREE.PerspectiveCamera(
+  65, innerWidth / innerHeight, 0.1, 150
+);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+game.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0x9bcfff, 0x171323, 1.7));
+
+const moon = new THREE.DirectionalLight(0x9fc9ff, 2.0);
+moon.position.set(-8, 14, 7);
+scene.add(moon);
+
+const glow = new THREE.PointLight(0x633bff, 20, 35);
+glow.position.set(0, 5, -8);
+scene.add(glow);
+
+function material(color, emissive=0x000000, roughness=.7) {
+  return new THREE.MeshStandardMaterial({
+    color, emissive, roughness, metalness:.12
+  });
+}
+
+const floorMat = material(0x171c30);
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(150,150), floorMat
+);
+floor.rotation.x = -Math.PI/2;
+floor.position.y = -0.08;
+scene.add(floor);
+
+// Procedural paths
+const path = new THREE.Mesh(
+  new THREE.PlaneGeometry(5,100),
+  material(0x292541)
+);
+path.rotation.x = -Math.PI/2;
+path.position.set(0, -0.045, -18);
+scene.add(path);
+
+// Ruined pillars around the starting area
+const stoneMat = material(0x303650);
+const pillars = [];
+for(let i=0;i<24;i++){
+  const side = i%2===0 ? -1:1;
+  const z = -5 - Math.floor(i/2)*4.5;
+  const h = 1.8 + Math.random()*2.7;
+  const p = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1,h,1.1), stoneMat
+  );
+  p.position.set(side*(4+Math.random()*3),h/2,z);
+  p.rotation.y = Math.random()*.3;
+  scene.add(p);
+  pillars.push(p);
+}
+
+// Decorative rocks
+for(let i=0;i<65;i++){
+  const rock = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(.2+Math.random()*.55,0),
+    material(i%2 ? 0x252b43:0x30344b)
+  );
+  rock.position.set((Math.random()-.5)*40,.05,-Math.random()*65);
+  rock.rotation.set(Math.random(),Math.random(),Math.random());
+  scene.add(rock);
+}
+
+// Glowing soul crystals
+const crystals = [];
+const crystalMat = material(0x55eaff,0x12bfff,.25);
+
+for(let i=0;i<8;i++){
+  const group = new THREE.Group();
+  const crystal = new THREE.Mesh(
+    new THREE.OctahedronGeometry(.65,0), crystalMat
+  );
+  crystal.position.y = .85;
+  group.add(crystal);
+
+  const light = new THREE.PointLight(0x27cfff,1.6,5);
+  light.position.y = 1;
+  group.add(light);
+
+  group.position.set(
+    (Math.random()-.5)*12,
+    0,
+    -7-Math.random()*43
+  );
+  scene.add(group);
+  crystals.push({group, collected:false});
+}
+
+// Player character
+const player = new THREE.Group();
+scene.add(player);
+
+const body = new THREE.Mesh(
+  new THREE.CapsuleGeometry(.42,.85,4,8),
+  material(0x242d50)
+);
+body.position.y = .85;
+player.add(body);
+
+const chest = new THREE.Mesh(
+  new THREE.BoxGeometry(.53,.35,.18),
+  material(0x1c8baf,0x075b88)
+);
+chest.position.set(0,1.05,-.32);
+player.add(chest);
+
+const head = new THREE.Mesh(
+  new THREE.SphereGeometry(.29,12,10),
+  material(0xb5d8e8)
+);
+head.position.y = 1.67;
+player.add(head);
+
+const eyeMat = material(0x5cf4ff,0x26dfff);
+for(const x of [-.11,.11]){
+  const eye = new THREE.Mesh(
+    new THREE.SphereGeometry(.045,8,8),eyeMat
+  );
+  eye.position.set(x,1.7,-.55);
+  player.add(eye);
+}
+
+// Glowing player aura
+const aura = new THREE.Mesh(
+  new THREE.RingGeometry(.5,.65,32),
+  new THREE.MeshBasicMaterial({
+    color:0x30cfff,transparent:true,opacity:.7,
+    side:THREE.DoubleSide
+  })
+);
+aura.rotation.x = -Math.PI/2;
+aura.position.y = .02;
+player.add(aura);
+
+// Companion pet
+const pet = new THREE.Group();
+const petBody = new THREE.Mesh(
+  new THREE.SphereGeometry(.34,12,10),
+  material(0x3b82b8,0x123c86)
+);
+petBody.scale.set(1, .8, 1.25);
+petBody.position.y = .4;
+pet.add(petBody);
+
+const petHead = new THREE.Mesh(
+  new THREE.SphereGeometry(.24,10,8),
+  material(0x6ccfff,0x154a91)
+);
+petHead.position.set(0,.63,-.25);
+pet.add(petHead);
+
+for(const x of [-.15,.15]){
+  const ear = new THREE.Mesh(
+    new THREE.ConeGeometry(.09,.24,5),
+    material(0x6ccfff)
+  );
+  ear.position.set(x,.86,-.22);
+  pet.add(ear);
+}
+scene.add(pet);
+
+// Training enemies
+const enemies = [];
+for(let i=0;i<4;i++){
+  const enemy = new THREE.Group();
+  const ebody = new THREE.Mesh(
+    new THREE.BoxGeometry(.85,1.1,.65),
+    material(0x612d48,0x310b20)
+  );
+  ebody.position.y=.65;
+  enemy.add(ebody);
+
+  const ehead = new THREE.Mesh(
+    new THREE.SphereGeometry(.28,10,8),
+    material(0xa63f66,0x4c102d)
+  );
+  ehead.position.y=1.4;
+  enemy.add(ehead);
+
+  enemy.position.set((i%2 ? 1:-1)*2.8,0,-14-i*9);
+  scene.add(enemy);
+  enemies.push({mesh:enemy,hp:2,alive:true});
+}
+
+player.position.set(0,0,2);
+pet.position.set(-1,0,3);
+
+let xp = 0, level = 1, hp = 100;
+let crystalCount = 0, kills = 0;
+let messageUntil = 0;
+let attackCooldown = 0;
+
+const keys = {};
+let joyX=0, joyY=0;
+let lastTime=0;
+
+function notify(text, duration=1800){
+  message.textContent=text;
+  message.style.display="block";
+  messageUntil=performance.now()+duration;
+}
+
+function updateHUD(){
+  document.getElementById("xp").textContent=xp;
+  document.getElementById("level").textContent=level;
+  document.getElementById("hptext").textContent=hp+" / 100";
+  document.getElementById("hpbar").style.width=hp+"%";
+  document.getElementById("xpbar").style.width=(xp%100)+"%";
+  document.getElementById("crystals").textContent=crystalCount;
+}
+
+function earnXP(amount){
+  xp+=amount;
+  while(xp>=level*100){
+    xp-=level*100;
+    level++;
+    notify("LEVEL UP! · LEVEL "+level,2400);
+  }
+  updateHUD();
+}
+
+function collectCrystal(){
+  let nearest=null, dist=2.5;
+
+  for(const c of crystals){
+    if(c.collected) continue;
+    const d=c.group.position.distanceTo(player.position);
+    if(d<dist){dist=d;nearest=c;}
+  }
+
+  if(!nearest){
+    notify("Move closer to a soul crystal");
+    return;
+  }
+
+  nearest.collected=true;
+  scene.remove(nearest.group);
+  crystalCount++;
+  earnXP(25);
+  notify("SOUL CRYSTAL ACQUIRED +25 XP");
+
+  if(crystalCount>=3){
+    earnXP(75);
+    notify("QUEST COMPLETE! +75 BONUS XP",3000);
+  }
+  updateHUD();
+}
+
+function attack(){
+  if(attackCooldown>0) return;
+  attackCooldown=.65;
+
+  let target=null, best=3.4;
+  for(const e of enemies){
+    if(!e.alive) continue;
+    const d=e.mesh.position.distanceTo(player.position);
+    if(d<best){best=d;target=e;}
+  }
+
+  // A visible strike pulse even when no enemy is close.
+  const pulse = new THREE.Mesh(
+    new THREE.SphereGeometry(.6,10,8),
+    new THREE.MeshBasicMaterial({
+      color:0x78eaff,transparent:true,opacity:.8
+    })
+  );
+  pulse.position.copy(player.position);
+  pulse.position.y=1;
+  scene.add(pulse);
+
+  const start=performance.now();
+  function fade(){
+    const t=(performance.now()-start)/280;
+    pulse.scale.setScalar(1+t*2);
+    pulse.material.opacity=Math.max(0,.8*(1-t));
+    if(t<1) requestAnimationFrame(fade);
+    else {scene.remove(pulse);pulse.geometry.dispose();pulse.material.dispose();}
+  }
+  fade();
+
+  if(target){
+    target.hp--;
+    target.mesh.scale.setScalar(.9);
+    setTimeout(()=>{
+      if(target.alive) target.mesh.scale.setScalar(1);
+    },100);
+
+    if(target.hp<=0){
+      target.alive=false;
+      scene.remove(target.mesh);
+      kills++;
+      earnXP(40);
+      notify("SHADOW DEFEATED · +40 XP");
+    }else{
+      notify("SOUL STRIKE! Enemy weakened");
+    }
+  }else{
+    notify("SOUL STRIKE!");
+  }
+}
+
+document.getElementById("interact").addEventListener("pointerdown",e=>{
+  e.preventDefault();collectCrystal();
+});
+document.getElementById("attack").addEventListener("pointerdown",e=>{
+  e.preventDefault();attack();
+});
+
+// Virtual joystick
+const stick=document.getElementById("stick");
+const knob=document.getElementById("knob");
+let stickPointer=null;
+
+stick.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  stickPointer=e.pointerId;
+  stick.setPointerCapture(e.pointerId);
+  moveStick(e);
+});
+stick.addEventListener("pointermove",e=>{
+  if(e.pointerId===stickPointer) moveStick(e);
+});
+function moveStick(e){
+  const r=stick.getBoundingClientRect();
+  const dx=e.clientX-(r.left+r.width/2);
+  const dy=e.clientY-(r.top+r.height/2);
+  const max=34;
+  const len=Math.hypot(dx,dy)||1;
+  const scale=Math.min(1,max/len);
+  const x=dx*scale,y=dy*scale;
+  knob.style.transform=`translate(${x}px,${y}px)`;
+  joyX=x/max;
+  joyY=y/max;
+}
+function resetStick(){
+  stickPointer=null;
+  joyX=joyY=0;
+  knob.style.transform="translate(0px,0px)";
+}
+stick.addEventListener("pointerup",resetStick);
+stick.addEventListener("pointercancel",resetStick);
+
+addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+  if(e.key===" "){e.preventDefault();attack();}
+  if(e.key.toLowerCase()==="e") collectCrystal();
+});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+const clock=new THREE.Clock();
+function animate(now){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),.04);
+  attackCooldown=Math.max(0,attackCooldown-dt);
+
+  let mx=joyX, mz=joyY;
+  if(keys.w||keys.arrowup) mz-=1;
+  if(keys.s||keys.arrowdown) mz+=1;
+  if(keys.a||keys.arrowleft) mx-=1;
+  if(keys.d||keys.arrowright) mx+=1;
+
+  const len=Math.hypot(mx,mz);
+  if(len>1){mx/=len;mz/=len;}
+
+  // Camera looks toward the direction the character is travelling.
+  const speed=5.2;
+  player.position.x+=mx*speed*dt;
+  player.position.z+=mz*speed*dt;
+
+  player.position.x=THREE.MathUtils.clamp(player.position.x,-18,18);
+  player.position.z=THREE.MathUtils.clamp(player.position.z,-58,8);
+
+  if(len>.08){
+    player.rotation.y=Math.atan2(mx,mz);
+  }
+
+  // Companion follows behind the player.
+  const behind=new THREE.Vector3(
+    player.position.x-1.1,
+    0,
+    player.position.z+1.3
+  );
+  pet.position.lerp(behind,Math.min(1,dt*3.5));
+  pet.position.y=Math.sin(now*.004)*.08;
+  pet.rotation.y=player.rotation.y;
+
+  // Animate crystals and aura.
+  for(const c of crystals){
+    if(!c.collected){
+      c.group.rotation.y+=dt*.8;
+      c.group.position.y=.08+Math.sin(now*.002+c.group.position.z)*.12;
+    }
+  }
+  aura.rotation.z+=dt*.8;
+
+  // Follow camera.
+  const desired=new THREE.Vector3(
+    player.position.x,
+    player.position.y+5.3,
+    player.position.z+8.5
+  );
+  camera.position.lerp(desired,Math.min(1,dt*4));
+  camera.lookAt(
+    player.position.x,
+    player.position.y+1,
+    player.position.z-2
+  );
+
+  // Keep the intro message from covering gameplay.
+  if(messageUntil && now>messageUntil){
+    message.style.display="none";
+    messageUntil=0;
+  }
+
+  renderer.render(scene,camera);
+}
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+updateHUD();
+requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
